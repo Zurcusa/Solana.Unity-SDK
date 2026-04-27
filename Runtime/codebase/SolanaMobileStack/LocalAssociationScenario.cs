@@ -22,6 +22,7 @@ public class LocalAssociationScenario
 
     private bool _didConnect;
     private bool _handledEncryptedMessage;
+    private bool _closing;
     private MobileWalletAdapterClient _client;
     private readonly AndroidJavaObject _currentActivity;
     private Queue<Action<IAdapterOperations>> _actions;
@@ -30,7 +31,7 @@ public class LocalAssociationScenario
     {
         var unityPlayer = new AndroidJavaClass("com.unity3d.player.UnityPlayer");
         _currentActivity = unityPlayer.GetStatic<AndroidJavaObject>("currentActivity");
-        _clientTimeoutMs = TimeSpan.FromSeconds(clientTimeoutMs);
+        _clientTimeoutMs = TimeSpan.FromMilliseconds(clientTimeoutMs);
         _port = Random.Range(WebSocketsTransportContract.WebsocketsLocalPortMin, WebSocketsTransportContract.WebsocketsLocalPortMax + 1);
         _session = new MobileWalletAdapterSession();
         var webSocketUri = WebSocketsTransportContract.WebsocketsLocalScheme + "://" + WebSocketsTransportContract.WebsocketsLocalHost + ":" + _port + WebSocketsTransportContract.WebsocketsLocalPath;
@@ -45,7 +46,7 @@ public class LocalAssociationScenario
         };
         _webSocket.OnClose += (e) =>
         {
-            if (!_didConnect) return;
+            if (!_didConnect || _closing) return;
             _webSocket.Connect(awaitConnection: false);
         };
         _webSocket.OnError += (e) =>
@@ -62,14 +63,14 @@ public class LocalAssociationScenario
             throw new ArgumentException("Actions must be non-null and non-empty");
         _actions = new Queue<Action<IAdapterOperations>>(actions);
         var intent = LocalAssociationIntentCreator.CreateAssociationIntent(
-            _session.AssociationToken, 
+            _session.AssociationToken,
             _port);
         _currentActivity.Call("startActivityForResult", intent, 0);
         _currentActivity.Call("runOnUiThread", new AndroidJavaRunnable(TryConnectWs));
         _startAssociationTaskCompletionSource = new TaskCompletionSource<Response<object>>();
         return _startAssociationTaskCompletionSource.Task;
     }
-    
+
     private async void TryConnectWs()
     {
         var timeout = _clientTimeoutMs;
@@ -119,7 +120,7 @@ public class LocalAssociationScenario
             _client = new MobileWalletAdapterClient(messageSender);
             _webSocket.OnMessage -= ReceivePublicKeyHandler;
             _webSocket.OnMessage += HandleEncryptedSessionPayload;
-            
+
             // Executing the first action
             ExecuteNextAction();
         }
@@ -132,7 +133,10 @@ public class LocalAssociationScenario
     private void ExecuteNextAction(Response<object> response = null)
     {
         if (_actions.Count == 0 || response is { Failed: true })
+        {
             CloseAssociation(response);
+            return;
+        }
         var action = _actions.Dequeue();
         action.Invoke(_client);
     }
@@ -141,6 +145,7 @@ public class LocalAssociationScenario
     {
         _webSocket.OnMessage -= HandleEncryptedSessionPayload;
         _handledEncryptedMessage = true;
+        _closing = true;
         await _webSocket.Close();
         _startAssociationTaskCompletionSource.SetResult(response);
     }
