@@ -46,7 +46,15 @@ public class LocalAssociationScenario
         };
         _webSocket.OnClose += (e) =>
         {
-            if (!_didConnect || _closing) return;
+            if (_closing) return;
+            if (_didConnect)
+            {
+                _closing = true;
+                _handledEncryptedMessage = true;
+                var failed = new Response<object> { Error = new ResponseError { Message = "Wallet closed connection" } };
+                _startAssociationTaskCompletionSource?.TrySetResult(failed);
+                return;
+            }
             _webSocket.Connect(awaitConnection: false);
         };
         _webSocket.OnError += (e) =>
@@ -68,6 +76,11 @@ public class LocalAssociationScenario
         _currentActivity.Call("startActivityForResult", intent, 0);
         _currentActivity.Call("runOnUiThread", new AndroidJavaRunnable(TryConnectWs));
         _startAssociationTaskCompletionSource = new TaskCompletionSource<Response<object>>();
+        Task.Delay(_clientTimeoutMs).ContinueWith(_ =>
+        {
+            var timeout = new Response<object> { Error = new ResponseError { Message = "Connection timeout" } };
+            _startAssociationTaskCompletionSource?.TrySetResult(timeout);
+        });
         return _startAssociationTaskCompletionSource.Task;
     }
 
