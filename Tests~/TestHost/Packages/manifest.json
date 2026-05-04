@@ -1,0 +1,9 @@
+{
+  "dependencies": {
+    "com.unity.test-framework": "1.1.33",
+    "com.solana.unity_sdk": "file:../../.."
+  },
+  "testables": [
+    "com.solana.unity_sdk"
+  ]
+}
