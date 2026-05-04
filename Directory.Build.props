@@ -1,0 +1,13 @@
+<!--
+  Scope: every Unity-generated .csproj in this repo (MSBuild walks up from each .csproj
+  location and auto-includes the nearest Directory.Build.props). UPM does NOT ship this
+  file to consumers — it stays local to the package development workspace. If this repo
+  is ever used as a git submodule inside another project, this file will also govern the
+  parent's .csproj files below this directory.
+-->
+<Project>
+  <PropertyGroup>
+    <LangVersion>9</LangVersion>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+</Project>
