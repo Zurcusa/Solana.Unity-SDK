@@ -1,6 +1,8 @@
 using System;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using Solana.Unity.SolanaMobileStack;
 using UnityEngine.Scripting;
 
 // ReSharper disable once CheckNamespace
@@ -34,17 +36,25 @@ namespace Solana.Unity.SDK
             return authTaskCompletionSource.Task;
         }
 
+        protected Task<JToken> SendRequestRaw(JsonRequest jsonRequest)
+        {
+            var message = JsonConvert.SerializeObject(jsonRequest);
+            UnityEngine.Debug.Log($"[MWA Wire] → {message}");
+            var messageBytes = System.Text.Encoding.UTF8.GetBytes(message);
+            _messageSender.Send(messageBytes);
+            var rawTaskCompletionSource = new TaskCompletionSource<JToken>();
+
+            // Register the message listener (raw variant — returns the JToken result field)
+            RegisterRawListener(rawTaskCompletionSource);
+            return rawTaskCompletionSource.Task;
+        }
+
         public void Receive(string message)
         {
 
             MessageEvent?.Invoke(message);
         }
 
-        /// <summary>
-        /// Register a listener for the message event
-        /// </summary>
-        /// <param name="task"></param>
-        /// <typeparam name="T"></typeparam>
         private void RegisterListener<T>(TaskCompletionSource<T> task)
         {
             var listener = new Action<string>(msg => Receiver(task, msg));
@@ -52,12 +62,13 @@ namespace Solana.Unity.SDK
             task.Task.ContinueWith(_ => { MessageEvent -= listener.Invoke; });
         }
 
-        /// <summary>
-        /// Wrap the receiver listener
-        /// </summary>
-        /// <param name="task"></param>
-        /// <param name="message"></param>
-        /// <typeparam name="T"></typeparam>
+        private void RegisterRawListener(TaskCompletionSource<JToken> task)
+        {
+            var listener = new Action<string>(msg => ReceiverRaw(task, msg));
+            MessageEvent += listener.Invoke;
+            task.Task.ContinueWith(_ => { MessageEvent -= listener.Invoke; });
+        }
+
         private static void Receiver<T>(TaskCompletionSource<T> task, string message)
         {
             try
@@ -65,7 +76,10 @@ namespace Solana.Unity.SDK
                 var authorizationResult = JsonConvert.DeserializeObject<Response<T>>(message);
                 if (authorizationResult.Error != null)
                 {
-                    task.SetException(new Exception(authorizationResult.Error.Message));
+                    task.SetException(new JsonRpcException(
+                        (int)authorizationResult.Error.Code,
+                        authorizationResult.Error.Message,
+                        null));
                 }
                 else
                 {
@@ -77,6 +91,30 @@ namespace Solana.Unity.SDK
                 task.SetException(e);
             }
 
+        }
+
+        private static void ReceiverRaw(TaskCompletionSource<JToken> task, string message)
+        {
+            try
+            {
+                var envelope = JObject.Parse(message);
+                var errorToken = envelope["error"];
+                if (errorToken != null && errorToken.Type != JTokenType.Null)
+                {
+                    var code = errorToken["code"]?.ToObject<int>() ?? 0;
+                    var errorMessage = errorToken["message"]?.ToString() ?? "Unknown JSON-RPC error";
+                    var data = errorToken["data"];
+                    task.SetException(new JsonRpcException(code, errorMessage, data));
+                }
+                else
+                {
+                    task.SetResult(envelope["result"]);
+                }
+            }
+            catch (JsonException e)
+            {
+                task.SetException(e);
+            }
         }
     }
 }
