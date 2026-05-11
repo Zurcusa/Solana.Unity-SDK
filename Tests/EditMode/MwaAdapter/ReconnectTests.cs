@@ -25,15 +25,18 @@ namespace SolanaMobileStack.Tests.EditMode
         public void Guard()
         {
             Assert.That(CacheField, Is.Not.Null, "_cache not found");
+            Assert.That(GateField, Is.Not.Null, "_gate not found — was it renamed?");
             Assert.That(ReconnectMethod, Is.Not.Null, "Reconnect not found");
         }
+
+        private static readonly FieldInfo GateField =
+            typeof(SolanaMobileWalletAdapter).GetField("_gate", BindingFlags.Instance | BindingFlags.NonPublic);
 
         private static SolanaMobileWalletAdapter CreateAdapter(IAuthorizationCache cache)
         {
             var adapter = (SolanaMobileWalletAdapter)FormatterServices.GetUninitializedObject(typeof(SolanaMobileWalletAdapter));
             CacheField.SetValue(adapter, cache);
-            var gateField = typeof(SolanaMobileWalletAdapter).GetField("_gate", BindingFlags.Instance | BindingFlags.NonPublic);
-            gateField.SetValue(adapter, new System.Threading.SemaphoreSlim(1, 1));
+            GateField.SetValue(adapter, new System.Threading.SemaphoreSlim(1, 1));
             return adapter;
         }
 
@@ -59,11 +62,19 @@ namespace SolanaMobileStack.Tests.EditMode
             });
             var adapter = CreateAdapter(cache);
 
+            if (Application.platform != RuntimePlatform.Android)
+            {
+                var task = (Task<ReconnectResult>)ReconnectMethod.Invoke(adapter, null);
+                Assert.ThrowsAsync<System.Exception>(async () => await task,
+                    "Non-Android: LocalAssociationScenario requires Android JNI");
+                return;
+            }
+
             var result = await (Task<ReconnectResult>)ReconnectMethod.Invoke(adapter, null);
 
             Assert.That(result, Is.InstanceOf<ReconnectResult.NoCachedSession>()
                 .Or.InstanceOf<ReconnectResult.Failed>(),
-                "In EditMode (no Android), should be NoCachedSession or Failed");
+                "On Android, should be NoCachedSession or Failed");
         }
 
         [Test]

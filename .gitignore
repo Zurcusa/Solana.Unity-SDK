@@ -39,9 +39,6 @@ LICENSE.meta
 README.md.meta
 package.json.meta
 
-docs/
-.claude/
-
 # Unity generated
 .utmp/
 **/[Ll]ibrary/
@@ -51,3 +48,4 @@ docs/
 **/[Ll]ogs/
 **/[Uu]ser[Ss]ettings/
 *.log
+
